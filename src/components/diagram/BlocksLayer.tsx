@@ -89,6 +89,8 @@ export const BlocksLayer: React.FC<BlocksLayerProps> = ({
                 textAnchor="middle"
                 fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
                 fontSize={20}
+                pointerEvents="none"
+                style={{ userSelect: "none", WebkitUserSelect: "none" }}
               >
                 Σ
               </text>
@@ -99,6 +101,8 @@ export const BlocksLayer: React.FC<BlocksLayerProps> = ({
                 textAnchor="middle"
                 fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
                 fontSize={12}
+                pointerEvents="none"
+                style={{ userSelect: "none", WebkitUserSelect: "none" }}
               >
                 {label}
               </text>

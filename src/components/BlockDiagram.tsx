@@ -198,6 +198,8 @@ export const BlockDiagram: React.FC<BlockDiagramProps> = ({
             borderRadius: "0.75rem",
             border: "1px solid #1e293b",
             backgroundColor: "#020617",
+            userSelect: "none",          // ⬅️ viktig rad
+            WebkitUserSelect: "none",    // Safari
           }}
           onMouseMove={handleMouseMove}
           onMouseUp={handleSvgMouseUp}
