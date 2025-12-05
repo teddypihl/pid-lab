@@ -41,8 +41,6 @@ export const BlocksLayer: React.FC<BlocksLayerProps> = ({
             ? "Step"
             : b.kind === "controller"
             ? "PID"
-            : b.kind === "plant"
-            ? "Plant"
             : b.kind === "sum"
             ? "Σ"
             : "Scope";
@@ -83,30 +81,85 @@ export const BlocksLayer: React.FC<BlocksLayerProps> = ({
               }
             />
             {b.kind === "sum" ? (
-              <text
-                x={b.x + width / 2}
-                y={b.y + height / 2 + 4}
-                textAnchor="middle"
-                fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
-                fontSize={20}
-                pointerEvents="none"
-                style={{ userSelect: "none", WebkitUserSelect: "none" }}
-              >
-                Σ
-              </text>
-            ) : (
-              <text
-                x={b.x + width / 2}
-                y={b.y + height / 2 + 4}
-                textAnchor="middle"
-                fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
-                fontSize={12}
-                pointerEvents="none"
-                style={{ userSelect: "none", WebkitUserSelect: "none" }}
-              >
-                {label}
-              </text>
-            )}
+  // Σ like before
+  <text
+    x={b.x + width / 2}
+    y={b.y + height / 2 + 4}
+    textAnchor="middle"
+    fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
+    fontSize={20}
+    pointerEvents="none"
+    style={{ userSelect: "none", WebkitUserSelect: "none" }}
+  >
+    Σ
+  </text>
+) : b.kind === "plant" ? (
+  // 🔧 Simulink-style 1/(Ts+1) block
+  <>
+    {/* fraction bar */}
+    <line
+      x1={b.x + 14}
+      x2={b.x + width - 14}
+      y1={b.y + height / 2}
+      y2={b.y + height / 2}
+      stroke={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
+      strokeWidth={0.8}
+    />
+
+    {/* numerator */}
+    <text
+      x={b.x + width / 2}
+      y={b.y + height / 2 - 4}
+      textAnchor="middle"
+      fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
+      fontSize={11}
+      pointerEvents="none"
+      style={{ userSelect: "none", WebkitUserSelect: "none" }}
+    >
+      1
+    </text>
+
+    {/* denominator: T s + 1 */}
+    <text
+      x={b.x + width / 2}
+      y={b.y + height / 2 + 11}
+      textAnchor="middle"
+      fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
+      fontSize={11}
+      pointerEvents="none"
+      style={{ userSelect: "none", WebkitUserSelect: "none" }}
+    >
+      {`${(b as any).params.T ?? 1} s + 1`}
+    </text>
+  </>
+) : b.kind === "controller" ? (
+  // (optional) keep PID nice and clear
+  <text
+    x={b.x + width / 2}
+    y={b.y + height / 2 + 4}
+    textAnchor="middle"
+    fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
+    fontSize={13}
+    pointerEvents="none"
+    style={{ userSelect: "none", WebkitUserSelect: "none" }}
+  >
+    PID
+  </text>
+) : (
+  // Step / Scope
+  <text
+    x={b.x + width / 2}
+    y={b.y + height / 2 + 4}
+    textAnchor="middle"
+    fill={isSelected || isPendingSource ? "#0f172a" : "#e5e7eb"}
+    fontSize={12}
+    pointerEvents="none"
+    style={{ userSelect: "none", WebkitUserSelect: "none" }}
+  >
+    {label}
+  </text>
+)}
+
           </g>
         );
       })}
