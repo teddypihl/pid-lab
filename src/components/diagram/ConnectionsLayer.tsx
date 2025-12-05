@@ -49,7 +49,7 @@ export const ConnectionsLayer: React.FC<ConnectionsLayerProps> = ({
         if (!from || !to) return null;
 
         const { width: wFrom, height: hFrom } = getBlockSize(from);
-        const { width: wTo, height: hTo } = getBlockSize(to);
+        const { height: hTo } = getBlockSize(to);
 
         const x1 = from.x + wFrom;
         const y1 = from.y + hFrom / 2;
