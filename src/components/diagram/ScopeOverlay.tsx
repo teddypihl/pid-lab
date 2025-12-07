@@ -1,5 +1,5 @@
 // src/components/diagram/ScopeOverlay.tsx
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 export type ResponseSample = {
   t: number;
@@ -15,33 +15,14 @@ interface ScopeOverlayProps {
   viewBoxHeight: number;
 }
 
-const computeCurveBounds = (samples: { t: number; y: number }[]) => {
-  if (!samples.length) {
-    return { tMin: 0, tMax: 1, yMin: 0, yMax: 1 };
-  }
-
-  const tMin = samples[0].t;
-  const tMax = samples[samples.length - 1].t;
-
-  let yMin = samples[0].y;
-  let yMax = samples[0].y;
-
-  for (const s of samples) {
-    if (s.y < yMin) yMin = s.y;
-    if (s.y > yMax) yMax = s.y;
-  }
-
-  if (yMax === yMin) {
-    yMax = yMin + 1;
-  } else {
-    const pad = 0.05 * (yMax - yMin);
-    yMin -= pad;
-    yMax += pad;
-  }
-
-  return { tMin, tMax, yMin, yMax };
-};
-
+/**
+ * Inline scope overlay inside the main SVG.
+ * - Plots r(t) and y(t)
+ * - Nice grid and axes
+ * - Zoom:
+ *    - Drag with left mouse button over the plot to zoom (X-axis/time)
+ *    - +/- buttons in top-right zoom in/out around the current center
+ */
 export const ScopeOverlay: React.FC<ScopeOverlayProps> = ({
   show,
   samples,
@@ -49,74 +30,269 @@ export const ScopeOverlay: React.FC<ScopeOverlayProps> = ({
   viewBoxWidth,
   viewBoxHeight,
 }) => {
-  if (!show || !samples || samples.length <= 1) return null;
+  if (!show || !samples || samples.length < 2) {
+    return null;
+  }
 
-  const margin = 24;
-  const panelWidth = viewBoxWidth - margin * 2;
-  const panelHeight = viewBoxHeight - margin * 2;
-
-  const panelX = margin;
-  const panelY = margin;
-
-  const innerPad = 20;
-  const plotX0 = panelX + innerPad;
-  const plotY0 = panelY + innerPad;
-  const plotW = panelWidth - 2 * innerPad;
-  const plotH = panelHeight - 2 * innerPad;
-
-  const { tMin, tMax, yMin, yMax } = computeCurveBounds(
-    samples.map(({ t, y }) => ({ t, y }))
+  // Sort by time
+  const sorted = useMemo(
+    () => [...samples].sort((a, b) => a.t - b.t),
+    [samples]
   );
 
-  const tRange = tMax - tMin || 1;
-  const yRange = yMax - yMin || 1;
+  const globalTMin = sorted[0].t;
+  const globalTMax = sorted[sorted.length - 1].t || globalTMin + 1e-6;
 
-  const mapPoint = (t: number, y: number) => {
-    const nx = (t - tMin) / tRange;
-    const ny = (y - yMin) / yRange;
-    const x = plotX0 + nx * plotW;
-    const ySvg = plotY0 + (1 - ny) * plotH;
-    return { x, y: ySvg };
+  // Current X-domain
+  const [xDomain, setXDomain] = useState<{ min: number; max: number }>({
+    min: globalTMin,
+    max: globalTMax,
+  });
+
+  // Reset zoom when samples or show-state changes
+  useEffect(() => {
+    if (!sorted.length) return;
+    const t0 = sorted[0].t;
+    const t1 = sorted[sorted.length - 1].t || t0 + 1e-6;
+    setXDomain({ min: t0, max: t1 });
+  }, [sorted, show]);
+
+  const xMin = xDomain.min;
+  const xMax = xDomain.max;
+  const xSpan = Math.max(xMax - xMin, 1e-6);
+
+  // Visible samples in current window
+  const visibleSamples = useMemo(
+    () => sorted.filter((s) => s.t >= xMin && s.t <= xMax),
+    [sorted, xMin, xMax]
+  );
+
+  if (visibleSamples.length < 2) {
+    return null;
+  }
+
+  // Y-domain for r(t) and y(t) in visible region
+  const { yMin, yMax } = useMemo(() => {
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+
+    visibleSamples.forEach((s) => {
+      minVal = Math.min(minVal, s.r, s.y);
+      maxVal = Math.max(maxVal, s.r, s.y);
+    });
+
+    if (!isFinite(minVal) || !isFinite(maxVal)) {
+      minVal = -1;
+      maxVal = 1;
+    }
+
+    // Include 0 so axis looks nicer
+    minVal = Math.min(minVal, 0);
+    maxVal = Math.max(maxVal, 0);
+
+    const span = maxVal - minVal || 1;
+    const pad = span * 0.08;
+    minVal -= pad;
+    maxVal += pad;
+
+    return { yMin: minVal, yMax: maxVal };
+  }, [visibleSamples]);
+
+  const ySpan = Math.max(yMax - yMin, 1e-6);
+
+  // Card geometry inside the viewBox
+  
+  const outerX = viewBoxWidth * 0.02;
+  const outerY = viewBoxHeight * 0.04;
+  const outerW = viewBoxWidth * 0.96;
+  const outerH = viewBoxHeight * 0.9;
+
+
+  const plotX0 = outerX + 42;
+  const plotX1 = outerX + outerW - 40;
+  const plotY0 = outerY + 26;
+  const plotY1 = outerY + outerH - 32;
+
+
+
+  const plotW = plotX1 - plotX0;
+  const plotH = plotY1 - plotY0;
+
+  const xForT = (t: number) =>
+    plotX0 + ((t - xMin) / xSpan) * plotW;
+
+  const yForVal = (v: number) =>
+    plotY1 - ((v - yMin) / ySpan) * plotH;
+
+  const buildPath = (key: "y" | "r") =>
+    visibleSamples
+      .map((s, i) => {
+        const x = xForT(s.t);
+        const y = yForVal(s[key]);
+        return `${i === 0 ? "M" : "L"}${x},${y}`;
+      })
+      .join(" ");
+
+  const pathY = buildPath("y");
+  const pathR = buildPath("r");
+
+  // Simple tick generator
+  const buildTicks = (min: number, max: number, count: number) => {
+    const span = max - min;
+    if (span <= 0) return [min];
+    const step = span / count;
+    const ticks: number[] = [];
+    for (let i = 0; i <= count; i++) {
+      ticks.push(min + i * step);
+    }
+    return ticks;
   };
 
-  const yPath = samples
-    .map((s, i) => {
-      const { x, y } = mapPoint(s.t, s.y);
-      return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
+  const xTicks = buildTicks(xMin, xMax, 6);
+  const yTicks = buildTicks(yMin, yMax, 5);
 
-  const rPath = samples
-    .map((s, i) => {
-      const { x, y } = mapPoint(s.t, s.r);
-      return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
+  // Zoom helpers
+  const zoomX = (factor: number) => {
+    // factor > 1 => zoom in, < 1 => zoom out
+    const center = (xMin + xMax) / 2;
+    const currentSpan = xMax - xMin;
+    const newSpanRaw = currentSpan / factor;
+    const globalSpan = globalTMax - globalTMin || 1e-6;
 
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-  const xTicks = [0, 0.25, 0.5, 0.75, 1];
+    const newSpan =
+      newSpanRaw >= globalSpan ? globalSpan : Math.max(newSpanRaw, globalSpan * 0.02);
+
+    let newMin = center - newSpan / 2;
+    let newMax = center + newSpan / 2;
+
+    if (newMin < globalTMin) {
+      newMin = globalTMin;
+      newMax = newMin + newSpan;
+    }
+    if (newMax > globalTMax) {
+      newMax = globalTMax;
+      newMin = newMax - newSpan;
+    }
+
+    setXDomain({ min: newMin, max: newMax });
+  };
+
+  const resetZoom = () => {
+    setXDomain({ min: globalTMin, max: globalTMax });
+  };
+
+  // Drag-to-zoom state
+  const [dragStartX, setDragStartX] = useState<number | null>(null);
+  const [dragCurrentX, setDragCurrentX] = useState<number | null>(null);
+
+  const clampToPlotX = (x: number) =>
+    Math.max(plotX0, Math.min(plotX0 + plotW, x));
+
+  const handlePlotMouseDown = (e: React.MouseEvent<SVGRectElement, MouseEvent>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const xView = (px / rect.width) * viewBoxWidth;
+    const xClamped = clampToPlotX(xView);
+
+    setDragStartX(xClamped);
+    setDragCurrentX(xClamped);
+  };
+
+  const handlePlotMouseMove = (e: React.MouseEvent<SVGRectElement, MouseEvent>) => {
+    if (dragStartX == null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const xView = (px / rect.width) * viewBoxWidth;
+    const xClamped = clampToPlotX(xView);
+
+    setDragCurrentX(xClamped);
+    
+    
+  };
+
+  const handlePlotMouseUp = (e: React.MouseEvent<SVGRectElement, MouseEvent>) => {
+    if (dragStartX == null || dragCurrentX == null) {
+      setDragStartX(null);
+      setDragCurrentX(null);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    const x0 = Math.min(dragStartX, dragCurrentX);
+    const x1 = Math.max(dragStartX, dragCurrentX);
+
+    setDragStartX(null);
+    setDragCurrentX(null);
+
+    if (x1 - x0 < 8) {
+      // Click, not a real drag → do nothing
+      return;
+
+      
+    }
+
+    const t0 = xMin + ((x0 - plotX0) / plotW) * xSpan;
+    const t1 = xMin + ((x1 - plotX0) / plotW) * xSpan;
+
+    if (t1 - t0 <= 1e-6) return;
+
+    setXDomain({ min: t0, max: t1 });
+  };
+
+  const selectionRect =
+    dragStartX != null && dragCurrentX != null ? (
+      <rect
+        x={Math.min(dragStartX, dragCurrentX)}
+        y={plotY0}
+        width={Math.abs(dragCurrentX - dragStartX)}
+        height={plotH}
+        fill="rgba(59,130,246,0.18)"
+        stroke="#3b82f6"
+        strokeDasharray="4 2"
+      />
+    ) : null;
 
   return (
-    <g>
-      {/* panel-bakgrund */}
+    <g onClick={(e) => e.stopPropagation()}>
+      {/* Dark backdrop */}
       <rect
-        x={panelX}
-        y={panelY}
-        width={panelWidth}
-        height={panelHeight}
-        rx={10}
-        ry={10}
+        x={0}
+        y={0}
+        width={viewBoxWidth}
+        height={viewBoxHeight}
+        fill="rgba(15,23,42,0.85)"
+      />
+
+      {/* Card */}
+      <rect
+        x={outerX}
+        y={outerY}
+        width={outerW}
+        height={outerH}
+        rx={12}
         fill="#020617"
-        stroke="#38bdf8"
+        stroke="#1e293b"
         strokeWidth={1}
       />
 
-      {/* titel */}
-      <text x={panelX + 12} y={panelY + 16} fill="#e5e7eb" fontSize={11}>
-        Scope – Step response
+      {/* Title */}
+      <text
+        x={outerX + 16}
+        y={outerY + 20}
+        fontSize={11}
+        fill="#e5e7eb"
+      >
+        Step response
       </text>
 
-      {/* close-knapp */}
+      {/* Close button */}
       <g
         onClick={(e) => {
           e.stopPropagation();
@@ -125,192 +301,225 @@ export const ScopeOverlay: React.FC<ScopeOverlayProps> = ({
         style={{ cursor: "pointer" }}
       >
         <rect
-          x={panelX + panelWidth - 18}
-          y={panelY + 8}
-          width={10}
-          height={10}
-          rx={2}
-          ry={2}
-          fill="#111827"
+          x={outerX + outerW - 24}
+          y={outerY + 8}
+          width={16}
+          height={16}
+          rx={4}
+          fill="#020617"
           stroke="#4b5563"
-          strokeWidth={0.7}
         />
         <text
-          x={panelX + panelWidth - 13}
-          y={panelY + 16}
+          x={outerX + outerW - 16}
+          y={outerY + 19}
+          fontSize={10}
           textAnchor="middle"
           fill="#e5e7eb"
-          fontSize={9}
         >
-          ✕
+          ×
         </text>
       </g>
 
-      {/* plot bakgrund */}
+      {/* Zoom +/- */}
+      <g>
+        <g
+          onClick={(e) => {
+            e.stopPropagation();
+            zoomX(1.4);
+          }}
+          style={{ cursor: "pointer" }}
+        >
+          <rect
+            x={outerX + outerW - 24}
+            y={outerY + 32}
+            width={16}
+            height={16}
+            rx={4}
+            fill="#020617"
+            stroke="#4b5563"
+          />
+          <text
+            x={outerX + outerW - 16}
+            y={outerY + 43}
+            fontSize={10}
+            textAnchor="middle"
+            fill="#e5e7eb"
+          >
+            +
+          </text>
+        </g>
+        <g
+          onClick={(e) => {
+            e.stopPropagation();
+            zoomX(1 / 1.4);
+          }}
+          style={{ cursor: "pointer" }}
+        >
+          <rect
+            x={outerX + outerW - 24}
+            y={outerY + 52}
+            width={16}
+            height={16}
+            rx={4}
+            fill="#020617"
+            stroke="#4b5563"
+          />
+          <text
+            x={outerX + outerW - 16}
+            y={outerY + 63}
+            fontSize={10}
+            textAnchor="middle"
+            fill="#e5e7eb"
+          >
+            –
+          </text>
+        </g>
+      </g>
+
+      {/* Reset zoom link */}
+      <text
+        x={outerX + 16}
+        y={outerY + outerH - 10}
+        fontSize={9}
+        fill="#9ca3af"
+        style={{ cursor: "pointer" }}
+        onClick={(e) => {
+          e.stopPropagation();
+          resetZoom();
+        }}
+      >
+        Reset zoom
+      </text>
+
+            {/* Plot background */}
       <rect
         x={plotX0}
         y={plotY0}
         width={plotW}
         height={plotH}
         fill="#020617"
-        stroke="#1f2933"
-        strokeWidth={0.7}
+        stroke="#111827"
+        strokeWidth={1}
+        // ⬇⬇⬇ aktiverar drag-zoom
+        onMouseDown={handlePlotMouseDown}
+        onMouseMove={handlePlotMouseMove}
+        onMouseUp={handlePlotMouseUp}
+        onMouseLeave={handlePlotMouseUp}
+        style={{ cursor: "crosshair" }}
       />
 
-      {/* grid horisontella */}
-      {yTicks.map((t, i) => {
-        const y = plotY0 + (1 - t) * plotH;
+      {/* Nicer grid: horizontal */}
+      {yTicks.map((val, i) => {
+        const y = yForVal(val);
+        const isZero = Math.abs(val) < 1e-8;
         return (
-          <line
-            key={`gy-${i}`}
-            x1={plotX0}
-            x2={plotX0 + plotW}
-            y1={y}
-            y2={y}
-            stroke="#111827"
-            strokeWidth={0.6}
-            strokeDasharray="2 2"
-          />
+          <g key={`yh-${i}`}>
+            <line
+              x1={plotX0}
+              x2={plotX0 + plotW}
+              y1={y}
+              y2={y}
+              stroke={isZero ? "#4b5563" : "#111827"}
+              strokeWidth={isZero ? 1.1 : 0.6}
+              strokeDasharray={isZero ? "none" : "2 2"}
+            />
+            <text
+              x={plotX0 - 6}
+              y={y + 3}
+              fontSize={8}
+              textAnchor="end"
+              fill="#6b7280"
+            >
+              {val.toFixed(2)}
+            </text>
+          </g>
         );
       })}
 
-      {/* grid vertikala */}
+      {/* Vertical grid */}
       {xTicks.map((t, i) => {
-        const x = plotX0 + t * plotW;
+        const x = xForT(t);
         return (
-          <line
-            key={`gx-${i}`}
-            x1={x}
-            x2={x}
-            y1={plotY0}
-            y2={plotY0 + plotH}
-            stroke="#111827"
-            strokeWidth={0.6}
-            strokeDasharray="2 2"
-          />
+          <g key={`xv-${i}`}>
+            <line
+              x1={x}
+              x2={x}
+              y1={plotY0}
+              y2={plotY0 + plotH}
+              stroke="#111827"
+              strokeWidth={0.6}
+              strokeDasharray="2 2"
+            />
+            <text
+              x={x}
+              y={plotY0 + plotH + 12}
+              fontSize={8}
+              textAnchor="middle"
+              fill="#6b7280"
+            >
+              {t.toFixed(2)}
+            </text>
+          </g>
         );
       })}
 
-      {/* axlar */}
-      <line
-        x1={plotX0}
-        x2={plotX0}
-        y1={plotY0}
-        y2={plotY0 + plotH}
-        stroke="#e5e7eb"
-        strokeWidth={0.8}
-      />
-      <line
-        x1={plotX0}
-        x2={plotX0 + plotW}
-        y1={plotY0 + plotH}
-        y2={plotY0 + plotH}
-        stroke="#e5e7eb"
-        strokeWidth={0.8}
+      {/* Selection rectangle while dragging */}
+      {selectionRect}
+
+      {/* y(t) */}
+      <path
+        d={pathY}
+        fill="none"
+        stroke="#22c55e"
+        strokeWidth={1.8}
       />
 
-      {/* y tick labels */}
-      {yTicks.map((t, i) => {
-        const y = plotY0 + (1 - t) * plotH;
-        const value = yMin + t * (yMax - yMin);
-        return (
-          <text
-            key={`yl-${i}`}
-            x={plotX0 - 4}
-            y={y + 3}
-            textAnchor="end"
-            fontSize={8}
-            fill="#9ca3af"
-          >
-            {value.toFixed(2)}
-          </text>
-        );
-      })}
-
-      {/* x tick labels (time) */}
-      {xTicks.map((t, i) => {
-        const x = plotX0 + t * plotW;
-        const value = tMin + t * (tMax - tMin);
-        return (
-          <text
-            key={`xl-${i}`}
-            x={x}
-            y={plotY0 + plotH + 10}
-            textAnchor="middle"
-            fontSize={8}
-            fill="#9ca3af"
-          >
-            {value.toFixed(1)}
-          </text>
-        );
-      })}
-
-      {/* axel-etiketter */}
-      <text
-        x={plotX0 + plotW / 2}
-        y={plotY0 + plotH + 20}
-        textAnchor="middle"
-        fontSize={9}
-        fill="#9ca3af"
-      >
-        t [s]
-      </text>
-      <text
-        x={plotX0 - 20}
-        y={plotY0 + plotH / 2}
-        textAnchor="middle"
-        fontSize={9}
-        fill="#9ca3af"
-        transform={`rotate(-90 ${plotX0 - 20} ${plotY0 + plotH / 2})`}
-      >
-        y, r
-      </text>
-
-      {/* referens r(t) */}
-      <path d={rPath} fill="none" stroke="#f97316" strokeWidth={1.3} />
-
-      {/* utsignal y(t) */}
-      <path d={yPath} fill="none" stroke="#38bdf8" strokeWidth={1.6} />
-
-      {/* legend */}
-      <rect
-        x={plotX0 + plotW - 70}
-        y={plotY0 + 4}
-        width={66}
-        height={22}
-        rx={4}
-        ry={4}
-        fill="#020617"
-        stroke="#1f2933"
-        strokeWidth={0.7}
-      />
-      <line
-        x1={plotX0 + plotW - 64}
-        y1={plotY0 + 11}
-        x2={plotX0 + plotW - 52}
-        y2={plotY0 + 11}
-        stroke="#38bdf8"
+      {/* r(t) */}
+      <path
+        d={pathR}
+        fill="none"
+        stroke="#f97316"
         strokeWidth={1.3}
       />
+
+      {/* Legend */}
+      <rect
+        x={plotX0 + 8}
+        y={plotY0 + 8}
+        width={90}
+        height={30}
+        rx={8}
+        fill="rgba(15,23,42,0.9)"
+        stroke="#1e293b"
+        strokeWidth={0.8}
+      />
+      <line
+        x1={plotX0 + 16}
+        y1={plotY0 + 18}
+        x2={plotX0 + 32}
+        y2={plotY0 + 18}
+        stroke="#22c55e"
+        strokeWidth={1.8}
+      />
       <text
-        x={plotX0 + plotW - 48}
-        y={plotY0 + 13}
+        x={plotX0 + 40}
+        y={plotY0 + 21}
         fontSize={8}
         fill="#e5e7eb"
       >
         y(t)
       </text>
       <line
-        x1={plotX0 + plotW - 64}
-        y1={plotY0 + 18}
-        x2={plotX0 + plotW - 52}
-        y2={plotY0 + 18}
+        x1={plotX0 + 16}
+        y1={plotY0 + 26}
+        x2={plotX0 + 32}
+        y2={plotY0 + 26}
         stroke="#f97316"
         strokeWidth={1.3}
       />
       <text
-        x={plotX0 + plotW - 48}
-        y={plotY0 + 20}
+        x={plotX0 + 40}
+        y={plotY0 + 29}
         fontSize={8}
         fill="#e5e7eb"
       >

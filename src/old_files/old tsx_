@@ -1,0 +1,7 @@
+<p style={{ margin: 0 }}>
+              Hold{" "}
+              <span style={{ fontFamily: "monospace", color: "#e5e7eb" }}>P</span> and
+              drag from one block to another to connect them. Press{" "}
+              <span style={{ fontFamily: "monospace", color: "#e5e7eb" }}>Delete</span>{" "}
+              to remove the selected block.
+            </p>

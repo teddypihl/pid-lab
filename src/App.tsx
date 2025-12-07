@@ -223,29 +223,8 @@ const inlineResponseData = samples.map((s) => ({
               color: "#9ca3af",
             }}
           >
-            <p style={{ margin: 0 }}>
-              Hold{" "}
-              <span style={{ fontFamily: "monospace", color: "#e5e7eb" }}>P</span> and
-              drag from one block to another to connect them. Press{" "}
-              <span style={{ fontFamily: "monospace", color: "#e5e7eb" }}>Delete</span>{" "}
-              to remove the selected block.
-            </p>
-            <button
-              onClick={handleRunSimulation}
-              style={{
-                marginTop: "4px",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                border: "none",
-                fontSize: "14px",
-                fontWeight: 500,
-                backgroundColor: "#10b981",
-                color: "#020617",
-                cursor: "pointer",
-              }}
-            >
-              Run simulation
-            </button>
+            
+          
           </div>
         </div>
       </header>
